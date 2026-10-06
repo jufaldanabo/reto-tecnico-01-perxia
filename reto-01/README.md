@@ -62,7 +62,7 @@ Todos los casos dan `listo=false` porque el soporte `camara_comercio` del reposi
 | `bun run verify:server` | Verifica el ciclo del agente con `MockLlm`: CA3 lifecycle (bloqueo + confirmación), CA4 log global, CA1 tope de iteraciones, CA5 tolerancia a errores LLM, smoke HTTP. |
 | `bun run typecheck` | `tsc --noEmit` en modo estricto. |
 | `bun run check` | Encadena `typecheck + demo:clean + verify:ambiguous + verify:mapeo + verify:h2 + verify:xlsx + verify:pdf + verify:paquete + verify:envio + verify:server`. |
-| `bun run dev` | Levanta el servidor HTTP en `PORT` (default 3000). |
+| `bun run dev` | Levanta backend + front de chat en `PORT` (default 3000). Abre `http://localhost:3000`. |
 
 ## Arranque del servidor
 
@@ -71,6 +71,8 @@ cp .env.example .env
 # Editar .env y completar LLM_API_KEY con tu clave de Anthropic
 bun run dev
 ```
+
+Abre `http://localhost:3000` en el browser para usar el chat.
 
 Endpoints disponibles:
 

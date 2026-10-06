@@ -106,6 +106,19 @@ Bun.serve({
       return json({ ok: true, sessionId: id, messages: mensajesPublicos, createdAt: sesion.createdAt })
     }
 
+    // Servir web/index.html para GET / y GET /index.html
+    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+      const htmlPath = path.join(rootDir, "web", "index.html")
+      try {
+        const html = await fs.readFile(htmlPath, "utf8")
+        return new Response(html, {
+          headers: { ...CORS_HEADERS, "content-type": "text/html; charset=utf-8" },
+        })
+      } catch {
+        return json({ ok: false, error: "front no disponible" }, 404)
+      }
+    }
+
     return json({ ok: false, error: "ruta no encontrada" }, 404)
   },
 })
