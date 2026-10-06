@@ -11,8 +11,9 @@
     "verify:xlsx": "bun run src/scripts/verify-xlsx.ts",
     "verify:pdf": "bun run src/scripts/verify-pdf.ts",
     "verify:paquete": "bun run src/scripts/verify-paquete.ts",
+    "verify:envio": "bun run src/scripts/verify-envio.ts",
     "typecheck": "bun x tsc --noEmit",
-    "check": "bun run typecheck && bun run demo:clean && bun run verify:ambiguous && bun run verify:mapeo && bun run verify:h2 && bun run verify:xlsx && bun run verify:pdf && bun run verify:paquete",
+    "check": "bun run typecheck && bun run demo:clean && bun run verify:ambiguous && bun run verify:mapeo && bun run verify:h2 && bun run verify:xlsx && bun run verify:pdf && bun run verify:paquete && bun run verify:envio",
     "dev": "echo 'TODO: slice servidor'"
   },
   "dependencies": {

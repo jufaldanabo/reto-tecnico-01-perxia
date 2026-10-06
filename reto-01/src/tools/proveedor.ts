@@ -19,12 +19,14 @@ import {
 } from "../lib/pdf"
 import { cargarSoportes, clasificarSoportes } from "../lib/soportes"
 import { armarPaqueteFS, type ArmarPaqueteConfig, type MapeoRef } from "../lib/paquete"
+import { armarEnvioFS, type EnvioConfig } from "../lib/envio"
 
 // Export names:
 //   leer_solicitud      → modelo lo ve como proveedor_leer_solicitud
 //   mapear_campos       → modelo lo ve como proveedor_mapear_campos
 //   generar_formulario  → modelo lo ve como proveedor_generar_formulario
 //   armar_paquete       → modelo lo ve como proveedor_armar_paquete
+//   simular_envio       → modelo lo ve como proveedor_simular_envio
 // (convención PRD §6.2: <archivo>_<export>)
 
 const FORMATOS = ["xlsx", "pdf", "portal"] as const
@@ -882,14 +884,34 @@ type ArmarRunResult =
     }
   | { ok: false; error: string }
 
-const runArmar = async (input: { caso: string }, ctx: Ctx): Promise<ArmarRunResult> => {
+// Función pura (D1 slice 06): calcula estado del paquete SIN escribir archivos.
+// Usada por `runArmar` (que agrega la escritura FS) y por `runEnvio`
+// (que solo necesita leer el estado para decidir si envía).
+type EstadoPaqueteOk = {
+  ok: true
+  cliente: string
+  pais: Pais
+  formato: Formato
+  correo: Correo
+  clasificacion: ReturnType<typeof clasificarSoportes>
+  formulario?: ArmarPaqueteConfig["formulario"]
+  mapeo: MapeoRef
+  listo_para_firma: boolean
+  bloqueos: string[]
+}
+type EstadoPaqueteErr = { ok: false; error: string }
+type EstadoPaqueteResult = EstadoPaqueteOk | EstadoPaqueteErr
+
+const calcularEstadoPaquete = async (
+  input: { caso: string },
+  ctx: Ctx
+): Promise<EstadoPaqueteResult> => {
   const nombre = input.caso
   const dir = casoDir(ctx, nombre)
   if (!(await existsDir(dir))) {
     return { ok: false, error: `caso no encontrado: ${nombre}` }
   }
 
-  // D2: usar runLeer/runMapear internos (no .execute), para que el log quede en 4 líneas por caso.
   const leerRes = await runLeer({ caso: nombre }, ctx)
   if (!leerRes.ok) return { ok: false, error: leerRes.error }
 
@@ -924,15 +946,50 @@ const runArmar = async (input: { caso: string }, ctx: Ctx): Promise<ArmarRunResu
     })),
   }
 
-  const config: ArmarPaqueteConfig = {
-    caso: nombre,
+  // Bloqueos: misma lógica que `armarPaqueteFS`, pero sin escribir.
+  const bloqueos: string[] = []
+  for (const s of clasificacion.vencidos) {
+    bloqueos.push(`Soporte vencido: ${s.tipo} (vigencia_hasta ${s.vigencia_hasta})`)
+  }
+  for (const tipo of clasificacion.ausentes) {
+    bloqueos.push(`Soporte ausente: ${tipo}`)
+  }
+  if (!formulario) {
+    bloqueos.push(`Formulario pendiente — formato ${leerRes.data.formato} diferido`)
+  }
+  const listo = bloqueos.length === 0
+
+  return {
+    ok: true,
     cliente: leerRes.data.cliente,
     pais: leerRes.data.pais,
     formato: leerRes.data.formato,
     correo: leerRes.data.correo,
     clasificacion,
-    mapeo: mapeoRef,
     formulario,
+    mapeo: mapeoRef,
+    listo_para_firma: listo,
+    bloqueos,
+  }
+}
+
+const runArmar = async (input: { caso: string }, ctx: Ctx): Promise<ArmarRunResult> => {
+  const nombre = input.caso
+
+  // D1 slice 06: usar la función pura para el estado; `armarPaqueteFS` escribe.
+  const estado = await calcularEstadoPaquete({ caso: nombre }, ctx)
+  if (!estado.ok) return { ok: false, error: estado.error }
+
+  const outCasoDir = outDir(ctx, nombre)
+  const config: ArmarPaqueteConfig = {
+    caso: nombre,
+    cliente: estado.cliente,
+    pais: estado.pais,
+    formato: estado.formato,
+    correo: estado.correo,
+    clasificacion: estado.clasificacion,
+    mapeo: estado.mapeo,
+    formulario: estado.formulario,
     paqueteDir: path.join(outCasoDir, "paquete"),
     soportesRepoDir: path.join(ctx.directory, "fixtures", "repositorio", "soportes"),
     fecha: new Date().toISOString().slice(0, 10),
@@ -943,15 +1000,13 @@ const runArmar = async (input: { caso: string }, ctx: Ctx): Promise<ArmarRunResu
     resultadoFS = await armarPaqueteFS(config)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    // Preservar strings de error específicos ("fallo copiando soporte X: ..." / "fallo copiando formulario X: ...")
-    // que armarPaqueteFS re-lanza desde dentro.
     if (msg.startsWith("fallo copiando soporte") || msg.startsWith("fallo copiando formulario")) {
       return { ok: false, error: msg }
     }
     return { ok: false, error: `fallo armando paquete (caso ${nombre}): ${msg}` }
   }
 
-  // D4: data.ruta con separador "/" explícito al final; path.join evita path.sep en Windows.
+  // D4: data.ruta con separador "/" explícito al final.
   const rutaRelativa = path.join("out", nombre, "paquete") + "/"
 
   const data: ArmarPaqueteData = {
@@ -959,9 +1014,9 @@ const runArmar = async (input: { caso: string }, ctx: Ctx): Promise<ArmarRunResu
     listo_para_firma: resultadoFS.listo_para_firma,
     checklist: {
       soportes: {
-        presentes: clasificacion.presentes.map((s) => s.tipo),
-        vencidos: clasificacion.vencidos.map((s) => s.tipo),
-        ausentes: [...clasificacion.ausentes],
+        presentes: estado.clasificacion.presentes.map((s) => s.tipo),
+        vencidos: estado.clasificacion.vencidos.map((s) => s.tipo),
+        ausentes: [...estado.clasificacion.ausentes],
       },
       bloqueos: resultadoFS.bloqueos,
     },
@@ -1016,6 +1071,175 @@ export const armar_paquete: Tool<typeof armarArgs, ArmarPaqueteData> = {
         herramienta: "proveedor_armar_paquete",
         ok: false,
         resumen: { caso: input.caso, error },
+      })
+      return JSON.stringify({ ok: false, error })
+    }
+  },
+}
+
+// ============================================================================
+// simular_envio (HU-4 cierre + RN4 estricto)
+// ============================================================================
+
+const simularArgs = {
+  caso: z.string().min(1).describe(
+    "Nombre de la carpeta del caso en reto-01/fixtures/casos/ (p.ej. 'co-industrias-delta')."
+  ),
+  confirmado: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Debe ser true explícito. false o ausente dispara error 'requiere confirmación explícita' sin escribir archivos (CA3/RN4)."
+    ),
+}
+
+type SimularEnvioData = { ruta: string }
+
+type SimularRunResult =
+  | {
+      ok: true
+      data: SimularEnvioData
+      resumenLog: { confirmado: boolean; listo_para_firma: boolean }
+    }
+  | {
+      ok: false
+      error: string
+      resumenLog: { confirmado: boolean; listo_para_firma?: boolean }
+    }
+
+const runEnvio = async (
+  input: { caso: string; confirmado: boolean },
+  ctx: Ctx
+): Promise<SimularRunResult> => {
+  const nombre = input.caso
+
+  // 1. Caso inexistente.
+  const dir = casoDir(ctx, nombre)
+  if (!(await existsDir(dir))) {
+    return {
+      ok: false,
+      error: `caso no encontrado: ${nombre}`,
+      resumenLog: { confirmado: input.confirmado },
+    }
+  }
+
+  // 2. Confirmación requerida (RN4 estricto): sale SIN tocar FS adicional.
+  if (input.confirmado !== true) {
+    return {
+      ok: false,
+      error: "requiere confirmación explícita",
+      resumenLog: { confirmado: false },
+    }
+  }
+
+  // 3. Calcular estado del paquete (función pura — no escribe).
+  const estado = await calcularEstadoPaquete({ caso: nombre }, ctx)
+  if (!estado.ok) {
+    return {
+      ok: false,
+      error: estado.error,
+      resumenLog: { confirmado: true },
+    }
+  }
+
+  // 4. RN3 cascada: si no está listo, error con bloqueos — sin escribir.
+  if (!estado.listo_para_firma) {
+    return {
+      ok: false,
+      error: `no listo para firma: ${estado.bloqueos.join("; ")}`,
+      resumenLog: { confirmado: true, listo_para_firma: false },
+    }
+  }
+
+  // 5. Happy path: escribir ENVIO-SIMULADO.md.
+  const outCasoDir = outDir(ctx, nombre)
+  const envioAbs = path.join(outCasoDir, "ENVIO-SIMULADO.md")
+  const soportesAdjuntos = [
+    ...estado.clasificacion.presentes,
+    ...estado.clasificacion.vencidos,
+  ].map((s) => ({ tipo: s.tipo, archivo: s.archivo }))
+  const config: EnvioConfig = {
+    caso: nombre,
+    cliente: estado.cliente,
+    pais: estado.pais,
+    formato: estado.formato,
+    correo: estado.correo,
+    adjuntos: {
+      formulario: estado.formulario?.nombreDestino,
+      soportes: soportesAdjuntos,
+    },
+    envioPath: envioAbs,
+    fecha: new Date().toISOString().slice(0, 10),
+  }
+
+  try {
+    await armarEnvioFS(config)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return {
+      ok: false,
+      error: `fallo simulando envío (caso ${nombre}): ${msg}`,
+      resumenLog: { confirmado: true, listo_para_firma: true },
+    }
+  }
+
+  // D4 slice 05 pattern: ruta relativa con "/" explícito.
+  const rutaRelativa = path.join("out", nombre, "ENVIO-SIMULADO.md")
+
+  return {
+    ok: true,
+    data: { ruta: rutaRelativa },
+    resumenLog: { confirmado: true, listo_para_firma: true },
+  }
+}
+
+export const simular_envio: Tool<typeof simularArgs, SimularEnvioData> = {
+  description:
+    "Simula el envío del paquete al cliente. Requiere confirmado:true explícito y listo_para_firma:true (sin soportes vencidos ni ausentes). Escribe out/<caso>/ENVIO-SIMULADO.md. Si confirmado:false o paquete no listo, devuelve error claro sin side effects (RN4).",
+  args: simularArgs,
+  async execute(input, ctx) {
+    const ts = new Date().toISOString()
+    try {
+      const r = await runEnvio({ caso: input.caso, confirmado: input.confirmado }, ctx)
+      if (r.ok) {
+        await appendLog(ctx, input.caso, {
+          ts,
+          herramienta: "proveedor_simular_envio",
+          ok: true,
+          resumen: {
+            confirmado: true,
+            listo_para_firma: true,
+            ruta: r.data.ruta,
+          },
+        })
+        return JSON.stringify({ ok: true, data: r.data })
+      }
+      await appendLog(ctx, input.caso, {
+        ts,
+        herramienta: "proveedor_simular_envio",
+        ok: false,
+        resumen: {
+          caso: input.caso,
+          confirmado: r.resumenLog.confirmado,
+          ...(r.resumenLog.listo_para_firma !== undefined && {
+            listo_para_firma: r.resumenLog.listo_para_firma,
+          }),
+          error: r.error,
+        },
+      })
+      return JSON.stringify({ ok: false, error: r.error })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const error = `fallo simulando envío (caso ${input.caso}): ${msg}`
+      await appendLog(ctx, input.caso, {
+        ts,
+        herramienta: "proveedor_simular_envio",
+        ok: false,
+        resumen: {
+          caso: input.caso,
+          confirmado: input.confirmado,
+          error,
+        },
       })
       return JSON.stringify({ ok: false, error })
     }

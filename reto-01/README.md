@@ -12,29 +12,37 @@ bun install
 bun run demo
 ```
 
-Desde el slice 05, `demo` ejecuta `leer_solicitud` + `mapear_campos` + `generar_formulario` + `armar_paquete` sobre los 4 casos reales de `fixtures/casos/`, escribe `out/<caso>/log.jsonl` con una línea por herramienta llamada y genera el formulario en el formato pedido (xlsx para CO/HN, pdf para EC; PA sigue skipped porque portal se implementa en slice posterior). `armar_paquete` deja `out/<caso>/paquete/` con formulario copiado, soportes exigidos presentes/vencidos, `checklist.md` y `borrador-correo.md`. Salida esperada:
+Desde el slice 06, `demo` ejecuta `leer_solicitud` + `mapear_campos` + `generar_formulario` + `armar_paquete` + `simular_envio` (dos ramas: `confirmado:false` y `confirmado:true`) sobre los 4 casos reales de `fixtures/casos/`. Escribe `out/<caso>/log.jsonl` con una línea por herramienta llamada (6 líneas por caso) y genera el formulario en el formato pedido (xlsx para CO/HN, pdf para EC; PA sigue skipped porque portal se implementa en slice posterior). `armar_paquete` deja `out/<caso>/paquete/` con formulario copiado, soportes exigidos presentes/vencidos, `checklist.md` y `borrador-correo.md`. `simular_envio` NO escribe `ENVIO-SIMULADO.md` para los casos reales porque los 4 bloquean por `camara_comercio` vencido (RN3). Salida esperada:
 
 ```
 caso: co-industrias-delta | pais: CO | formato: xlsx | 17 campos (0 ambiguos, 17 obligatorios) | 4 soportes
   mapeo: 17 llenos, 0 faltantes, 0 requiere_confirmacion
   generar: ruta=out/co-industrias-delta/formulario.xlsx (17 escritos, 0 vacíos)
   paquete: ruta=out/co-industrias-delta/paquete/ (listo=false; P/A/V=3/0/1)
+  envio[1]: ERROR: requiere confirmación explícita
+  envio[2]: ERROR: no listo para firma: Soporte vencido: camara_comercio (vigen…
 caso: ec-corp-andina | pais: EC | formato: pdf | 15 campos (0 ambiguos, 13 obligatorios) | 5 soportes
   mapeo: 13 llenos, 1 faltantes, 1 requiere_confirmacion
   generar: ruta=out/ec-corp-andina/formulario.pdf (13 escritos, 2 vacíos)
   paquete: ruta=out/ec-corp-andina/paquete/ (listo=false; P/A/V=3/1/1)
+  envio[1]: ERROR: requiere confirmación explícita
+  envio[2]: ERROR: no listo para firma: Soporte vencido: camara_comercio (vigen…
 caso: hn-agroexport-sula | pais: HN | formato: xlsx | 11 campos (0 ambiguos, 11 obligatorios) | 3 soportes
   mapeo: 9 llenos, 1 faltantes, 1 requiere_confirmacion
   generar: ruta=out/hn-agroexport-sula/formulario.xlsx (9 escritos, 2 vacíos)
   paquete: ruta=out/hn-agroexport-sula/paquete/ (listo=false; P/A/V=1/0/2)
+  envio[1]: ERROR: requiere confirmación explícita
+  envio[2]: ERROR: no listo para firma: Soporte vencido: camara_comercio (vigen…
 caso: pa-logistica-istmo | pais: PA | formato: portal | 9 campos (0 ambiguos, 9 obligatorios) | 2 soportes
   mapeo: 8 llenos, 0 faltantes, 1 requiere_confirmacion
   generar: skipped (formato portal)
   paquete: ruta=out/pa-logistica-istmo/paquete/ (listo=false; P/A/V=1/0/1)
-total: 4 casos | ok: 4 | error: 0
+  envio[1]: ERROR: requiere confirmación explícita
+  envio[2]: ERROR: no listo para firma: Soporte vencido: camara_comercio (vigen…
+total: 4 casos | ok: 4 | error: 0 | expected-errors: 8
 ```
 
-Todos los casos dan `listo=false` porque el soporte `camara_comercio` del repositorio tiene `vigencia_hasta: 2026-09-30` (vencido respecto a la fecha de ejecución). Este estado es intencional del fixture para ejercitar RN3 (soportes vencidos bloquean la firma).
+Todos los casos dan `listo=false` porque el soporte `camara_comercio` del repositorio tiene `vigencia_hasta: 2026-09-30` (vencido respecto a la fecha de ejecución). Este estado es intencional del fixture para ejercitar RN3 (soportes vencidos bloquean la firma). Los `expected-errors: 8` corresponden a las 2 ramas de error esperadas de `simular_envio` × 4 casos (CA3/RN4 "requiere confirmación explícita" + RN3 "no listo para firma").
 
 (Las cuentas exactas de campos pueden variar si cambian los fixtures; lo importante es `ok: 4 | error: 0`, que `llenos + faltantes + requiere_confirmacion === campos` por caso y que los xlsx producidos sean releíbles.)
 
@@ -50,8 +58,9 @@ Todos los casos dan `listo=false` porque el soporte `camara_comercio` del reposi
 | `bun run verify:xlsx` | Verifica `generar_formulario` xlsx: fidelidad celda a celda vs plantilla, multi-sheet (CO), ausencia de xlsx (EC/PA) y determinismo del escritor. |
 | `bun run verify:pdf` | Verifica `generar_formulario` pdf: fidelidad del texto extraído (EC), ausencia de pdf (PA) y determinismo del escritor. |
 | `bun run verify:paquete` | Verifica `armar_paquete`: clasificación de soportes, copias en `paquete/`, secciones del `checklist.md`, RN2 scan sobre `borrador-correo.md`, `listo_para_firma=false` para los 4 casos. |
+| `bun run verify:envio` | Verifica `simular_envio`: ramas de error (CA3/RN4 "requiere confirmación", RN3 "no listo"), ausencia de side effects, y happy path end-to-end con fixtures sintéticos (`vigencia_hasta: 2030-01-01`). |
 | `bun run typecheck` | `tsc --noEmit` en modo estricto. |
-| `bun run check` | Encadena `typecheck + demo:clean + verify:ambiguous + verify:mapeo + verify:h2 + verify:xlsx + verify:pdf + verify:paquete`. |
+| `bun run check` | Encadena `typecheck + demo:clean + verify:ambiguous + verify:mapeo + verify:h2 + verify:xlsx + verify:pdf + verify:paquete + verify:envio`. |
 | `bun run dev` | Placeholder — se implementa en el slice del servidor. |
 
 ## Variables de entorno

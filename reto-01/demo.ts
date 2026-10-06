@@ -3,6 +3,7 @@ import {
   mapear_campos,
   generar_formulario,
   armar_paquete,
+  simular_envio,
 } from "./src/tools/proveedor"
 import type { Ctx } from "./src/tools/types"
 
@@ -58,8 +59,19 @@ type ArmarOk = {
 }
 type ArmarErr = { ok: false; error: string }
 
+type EnvioOk = { ok: true; data: { ruta: string } }
+type EnvioErr = { ok: false; error: string }
+
+const EXPECTED_ERRORS = [
+  "requiere confirmación explícita",
+  "no listo para firma",
+]
+
+const truncar = (s: string, n: number): string => (s.length > n ? s.slice(0, n) + "…" : s)
+
 let okCount = 0
 let errCount = 0
+let expectedCount = 0
 
 for (const caso of CASOS) {
   const resStr = await leer_solicitud.execute({ caso }, ctx)
@@ -117,7 +129,32 @@ for (const caso of CASOS) {
     console.log(`  paquete: ERROR: ${armRes.error}`)
     errCount++
   }
+
+  // Dos invocaciones de simular_envio para ejercitar las dos ramas de error (CA3/RN4 + RN3).
+  const envioInvocaciones: Array<[number, boolean]> = [
+    [1, false],
+    [2, true],
+  ]
+  for (const [idx, confirmado] of envioInvocaciones) {
+    const envStr = await simular_envio.execute({ caso, confirmado }, ctx)
+    const envRes = JSON.parse(envStr) as EnvioOk | EnvioErr
+    if (envRes.ok) {
+      console.log(`  envio[${idx}]: ruta=${envRes.data.ruta}`)
+    } else {
+      const isExpected = EXPECTED_ERRORS.some((p) => envRes.error.startsWith(p))
+      const err = truncar(envRes.error, 60)
+      if (isExpected) {
+        console.log(`  envio[${idx}]: ERROR: ${err}`)
+        expectedCount++
+      } else {
+        console.log(`  envio[${idx}]: ERROR UNEXPECTED: ${err}`)
+        errCount++
+      }
+    }
+  }
 }
 
-console.log(`total: ${CASOS.length} casos | ok: ${okCount} | error: ${errCount}`)
+console.log(
+  `total: ${CASOS.length} casos | ok: ${okCount} | error: ${errCount} | expected-errors: ${expectedCount}`
+)
 process.exit(errCount === 0 ? 0 : 1)
