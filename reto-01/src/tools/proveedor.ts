@@ -2,16 +2,21 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { z } from "zod"
 import type { Ctx, Tool } from "./types"
-import { casoDir } from "../lib/paths"
+import { casoDir, outDir } from "../lib/paths"
 import { appendLog } from "../lib/log"
 import { PAISES, NOTA_POR_PAIS, notaIdentExtranjero, type Pais } from "../lib/pais"
 import { normalizar } from "../lib/normalize"
 import { similitud } from "../lib/levenshtein"
 import { cargarMaestro, cargarGlosario, obtenerValor } from "../lib/maestro"
+import {
+  escribirFormulario,
+  type PlantillaCelda as XlsxPlantillaCelda,
+} from "../lib/xlsx"
 
 // Export names:
-//   leer_solicitud → modelo lo ve como proveedor_leer_solicitud
-//   mapear_campos  → modelo lo ve como proveedor_mapear_campos
+//   leer_solicitud      → modelo lo ve como proveedor_leer_solicitud
+//   mapear_campos       → modelo lo ve como proveedor_mapear_campos
+//   generar_formulario  → modelo lo ve como proveedor_generar_formulario
 // (convención PRD §6.2: <archivo>_<export>)
 
 const FORMATOS = ["xlsx", "pdf", "portal"] as const
@@ -603,6 +608,188 @@ export const mapear_campos: Tool<typeof mapearArgs, MapeoData> = {
       await appendLog(ctx, input.caso, {
         ts,
         herramienta: "proveedor_mapear_campos",
+        ok: false,
+        resumen: { caso: input.caso, error },
+      })
+      return JSON.stringify({ ok: false, error })
+    }
+  },
+}
+
+// ============================================================================
+// generar_formulario (slice 03: rama xlsx; pdf/portal → error diferido)
+// ============================================================================
+
+const LlenoInputSchema = z
+  .object({
+    etiqueta: z.string(),
+    valor: z.unknown(),
+  })
+  .passthrough()
+
+const FaltanteInputSchema = z.object({ etiqueta: z.string() }).passthrough()
+const ConfirmacionInputSchema = z.object({ etiqueta: z.string() }).passthrough()
+
+const MapeoInputSchema = z.object({
+  llenos: z.array(LlenoInputSchema),
+  faltantes: z.array(FaltanteInputSchema),
+  requiere_confirmacion: z.array(ConfirmacionInputSchema),
+})
+
+const generarArgs = {
+  caso: z.string().min(1).describe(
+    "Nombre de la carpeta del caso en reto-01/fixtures/casos/ (p.ej. 'co-industrias-delta')."
+  ),
+  mapeo: MapeoInputSchema.describe(
+    "Mapeo producido por proveedor_mapear_campos: { llenos[], faltantes[], requiere_confirmacion[] }."
+  ),
+}
+
+type GenerarData = { ruta: string; formato: "xlsx" }
+
+type GenerarRunResult =
+  | { ok: true; data: GenerarData; n_escritos: number; n_vacios: number }
+  | { ok: false; error: string; formato?: string }
+
+const runGenerar = async (
+  input: { caso: string; mapeo: z.infer<typeof MapeoInputSchema> },
+  ctx: Ctx
+): Promise<GenerarRunResult> => {
+  const nombre = input.caso
+  const dir = casoDir(ctx, nombre)
+  if (!(await existsDir(dir))) {
+    return { ok: false, error: `caso no encontrado: ${nombre}` }
+  }
+
+  const solicitudRuta = path.join(dir, "solicitud.json")
+  if (!(await existsFile(solicitudRuta))) {
+    return { ok: false, error: `solicitud ausente para caso ${nombre}` }
+  }
+  const solicitudRes = await leerJson(solicitudRuta, SolicitudSchema)
+  if (!solicitudRes.ok) {
+    const issues = solicitudRes.issues
+    if (issues) {
+      if (issues.some((i) => i.path[0] === "formato")) {
+        return { ok: false, error: `formato inválido en solicitud (caso ${nombre}): ver ${solicitudRuta}` }
+      }
+      if (issues.some((i) => i.path[0] === "pais")) {
+        return { ok: false, error: `pais inválido en solicitud (caso ${nombre}): ver ${solicitudRuta}` }
+      }
+    }
+    return { ok: false, error: solicitudRes.error }
+  }
+  const formato = solicitudRes.data.formato
+
+  if (formato === "pdf") {
+    return {
+      ok: false,
+      error: "formato pdf no implementado en slice 03; disponible en slice 04",
+      formato,
+    }
+  }
+  if (formato === "portal") {
+    return {
+      ok: false,
+      error: "formato portal no implementado en slice 03; disponible en slice posterior",
+      formato,
+    }
+  }
+
+  // formato === "xlsx"
+  const plantillaRuta = path.join(dir, "plantilla-celdas.json")
+  if (!(await existsFile(plantillaRuta))) {
+    return { ok: false, error: `plantilla ausente para formato xlsx (caso ${nombre})`, formato }
+  }
+  const plantillaRes = await leerJson(plantillaRuta, PlantillaCeldasSchema)
+  if (!plantillaRes.ok) return { ok: false, error: plantillaRes.error, formato }
+
+  // Lookup etiqueta → valor desde mapeo.llenos (match exacto, decisión spec §6.2).
+  const valores = new Map<string, unknown>()
+  for (const l of input.mapeo.llenos) {
+    valores.set(l.etiqueta, l.valor)
+  }
+
+  const plantilla: XlsxPlantillaCelda[] = plantillaRes.data.map((p) => ({
+    hoja: p.hoja,
+    celda_etiqueta: p.celda_etiqueta,
+    etiqueta: p.etiqueta,
+    celda_valor: p.celda_valor,
+  }))
+
+  const dirSalida = outDir(ctx, nombre)
+  try {
+    await fs.mkdir(dirSalida, { recursive: true })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `fallo escribiendo xlsx para caso ${nombre}: ${msg}`, formato }
+  }
+
+  const rutaAbs = path.join(dirSalida, "formulario.xlsx")
+  let n_escritos = 0
+  let n_vacios = 0
+  try {
+    const r = await escribirFormulario(rutaAbs, plantilla, valores)
+    n_escritos = r.n_escritos
+    n_vacios = r.n_vacios
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `fallo escribiendo xlsx para caso ${nombre}: ${msg}`, formato }
+  }
+
+  const rutaRelativa = path.join("out", nombre, "formulario.xlsx")
+  return {
+    ok: true,
+    data: { ruta: rutaRelativa, formato: "xlsx" },
+    n_escritos,
+    n_vacios,
+  }
+}
+
+export const generar_formulario: Tool<typeof generarArgs, GenerarData> = {
+  description:
+    "Genera el formulario del cliente a partir del mapeo. Soporta xlsx (escribe out/<caso>/formulario.xlsx siguiendo plantilla-celdas.json). pdf y portal devuelven error de 'no implementado' en este slice.",
+  args: generarArgs,
+  async execute(input, ctx) {
+    const ts = new Date().toISOString()
+    try {
+      const result = await runGenerar(input, ctx)
+      if (result.ok) {
+        await appendLog(ctx, input.caso, {
+          ts,
+          herramienta: "proveedor_generar_formulario",
+          ok: true,
+          resumen: {
+            formato: result.data.formato,
+            ruta: result.data.ruta,
+            n_escritos: result.n_escritos,
+            n_vacios: result.n_vacios,
+          },
+        })
+        // D2: n_escritos/n_vacios top-level, FUERA de data (data respeta contrato §6.2 literal).
+        return JSON.stringify({
+          ok: true,
+          data: result.data,
+          n_escritos: result.n_escritos,
+          n_vacios: result.n_vacios,
+        })
+      }
+      await appendLog(ctx, input.caso, {
+        ts,
+        herramienta: "proveedor_generar_formulario",
+        ok: false,
+        resumen: {
+          caso: input.caso,
+          formato: result.formato ?? "desconocido",
+          error: result.error,
+        },
+      })
+      return JSON.stringify({ ok: false, error: result.error })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const error = `fallo generando formulario (caso ${input.caso}): ${msg}`
+      await appendLog(ctx, input.caso, {
+        ts,
+        herramienta: "proveedor_generar_formulario",
         ok: false,
         resumen: { caso: input.caso, error },
       })

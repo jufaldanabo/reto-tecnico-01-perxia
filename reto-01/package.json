@@ -8,11 +8,13 @@
     "verify:ambiguous": "bun run src/scripts/verify-ambiguous.ts",
     "verify:mapeo": "bun run src/scripts/verify-mapeo.ts",
     "verify:h2": "bun run src/scripts/verify-h2-regression.ts",
+    "verify:xlsx": "bun run src/scripts/verify-xlsx.ts",
     "typecheck": "bun x tsc --noEmit",
-    "check": "bun run typecheck && bun run demo:clean && bun run verify:ambiguous && bun run verify:mapeo && bun run verify:h2",
+    "check": "bun run typecheck && bun run demo:clean && bun run verify:ambiguous && bun run verify:mapeo && bun run verify:h2 && bun run verify:xlsx",
     "dev": "echo 'TODO: slice servidor'"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
