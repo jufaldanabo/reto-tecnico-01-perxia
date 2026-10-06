@@ -1,0 +1,17 @@
+{
+  "name": "reto-01-perxia",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "bun run demo.ts",
+    "typecheck": "bun x tsc --noEmit",
+    "dev": "echo 'TODO: slice servidor'"
+  },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/bun": "latest"
+  }
+}
