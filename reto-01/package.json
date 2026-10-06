@@ -13,10 +13,12 @@
     "verify:paquete": "bun run src/scripts/verify-paquete.ts",
     "verify:envio": "bun run src/scripts/verify-envio.ts",
     "typecheck": "bun x tsc --noEmit",
-    "check": "bun run typecheck && bun run demo:clean && bun run verify:ambiguous && bun run verify:mapeo && bun run verify:h2 && bun run verify:xlsx && bun run verify:pdf && bun run verify:paquete && bun run verify:envio",
-    "dev": "echo 'TODO: slice servidor'"
+    "verify:server": "bun run src/scripts/verify-server.ts",
+    "check": "bun run typecheck && bun run demo:clean && bun run verify:ambiguous && bun run verify:mapeo && bun run verify:h2 && bun run verify:xlsx && bun run verify:pdf && bun run verify:paquete && bun run verify:envio && bun run verify:server",
+    "dev": "bun run src/server.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.33.0",
     "exceljs": "^4.4.0",
     "pdfkit": "^0.15.0",
     "zod": "^3.23.0"

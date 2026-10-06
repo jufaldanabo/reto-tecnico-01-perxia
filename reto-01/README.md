@@ -59,21 +59,42 @@ Todos los casos dan `listo=false` porque el soporte `camara_comercio` del reposi
 | `bun run verify:pdf` | Verifica `generar_formulario` pdf: fidelidad del texto extraído (EC), ausencia de pdf (PA) y determinismo del escritor. |
 | `bun run verify:paquete` | Verifica `armar_paquete`: clasificación de soportes, copias en `paquete/`, secciones del `checklist.md`, RN2 scan sobre `borrador-correo.md`, `listo_para_firma=false` para los 4 casos. |
 | `bun run verify:envio` | Verifica `simular_envio`: ramas de error (CA3/RN4 "requiere confirmación", RN3 "no listo"), ausencia de side effects, y happy path end-to-end con fixtures sintéticos (`vigencia_hasta: 2030-01-01`). |
+| `bun run verify:server` | Verifica el ciclo del agente con `MockLlm`: CA3 lifecycle (bloqueo + confirmación), CA4 log global, CA1 tope de iteraciones, CA5 tolerancia a errores LLM, smoke HTTP. |
 | `bun run typecheck` | `tsc --noEmit` en modo estricto. |
-| `bun run check` | Encadena `typecheck + demo:clean + verify:ambiguous + verify:mapeo + verify:h2 + verify:xlsx + verify:pdf + verify:paquete + verify:envio`. |
-| `bun run dev` | Placeholder — se implementa en el slice del servidor. |
+| `bun run check` | Encadena `typecheck + demo:clean + verify:ambiguous + verify:mapeo + verify:h2 + verify:xlsx + verify:pdf + verify:paquete + verify:envio + verify:server`. |
+| `bun run dev` | Levanta el servidor HTTP en `PORT` (default 3000). |
+
+## Arranque del servidor
+
+```bash
+cp .env.example .env
+# Editar .env y completar LLM_API_KEY con tu clave de Anthropic
+bun run dev
+```
+
+Endpoints disponibles:
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/api/chat` | `{ sessionId, message }` → `{ reply, toolCalls, needsConfirmation, sessionId }` |
+| `GET` | `/api/sessions/:id` | Historial de mensajes de la sesión (sin system prompt). 404 si no existe. |
+| `GET` | `/api/health` | `{ ok: true, provider, model }` — sin claves. |
+
+> **Seguridad**: `LLM_API_KEY` solo existe en el `.env` del backend. Nunca se incluye en el repositorio, en los logs ni en respuestas HTTP.
 
 ## Variables de entorno
 
 Copiar `.env.example` → `.env` y completar:
 
-| Variable | Propósito | Default sugerido |
+| Variable | Propósito | Default |
 |---|---|---|
-| `LLM_PROVIDER` | Proveedor del modelo (anthropic / openai / google / azure / mistral / local). | — |
-| `LLM_API_KEY` | Clave del proveedor. Solo se lee en backend; **nunca** aparece en código, logs ni front. | — |
-| `LLM_MODEL` | Identificador del modelo específico. | — |
+| `LLM_PROVIDER` | Proveedor del modelo (`anthropic`). | `anthropic` |
+| `LLM_API_KEY` | Clave del proveedor. Solo se lee en backend; **nunca** aparece en código, logs ni front. | — (requerido) |
+| `LLM_MODEL` | Identificador del modelo específico. | `claude-sonnet-4-5` |
+| `LLM_MAX_TOKENS` | Tope de tokens por respuesta del LLM. | `2048` |
 | `AGENT_MAX_ITERATIONS` | Tope de iteraciones herramienta↔modelo por turno (PRD CA1). | `25` |
-| `SESSION_TOKEN_LIMIT` | Tope de tokens por sesión (PRD §8 "Costo"). | — |
+| `SESSION_TOKEN_LIMIT` | Tope de tokens por sesión (PRD §8 "Costo"). | `100000` |
+| `PORT` | Puerto del servidor HTTP. | `3000` |
 
 ## Dependencias
 
