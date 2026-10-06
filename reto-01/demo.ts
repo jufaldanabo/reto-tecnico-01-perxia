@@ -1,4 +1,9 @@
-import { leer_solicitud, mapear_campos, generar_formulario } from "./src/tools/proveedor"
+import {
+  leer_solicitud,
+  mapear_campos,
+  generar_formulario,
+  armar_paquete,
+} from "./src/tools/proveedor"
 import type { Ctx } from "./src/tools/types"
 
 const CASOS = [
@@ -39,6 +44,19 @@ type GenOk = {
   n_vacios?: number
 }
 type GenErr = { ok: false; error: string }
+
+type ArmarOk = {
+  ok: true
+  data: {
+    ruta: string
+    listo_para_firma: boolean
+    checklist: {
+      soportes: { presentes: string[]; vencidos: string[]; ausentes: string[] }
+      bloqueos: string[]
+    }
+  }
+}
+type ArmarErr = { ok: false; error: string }
 
 let okCount = 0
 let errCount = 0
@@ -85,6 +103,18 @@ for (const caso of CASOS) {
     okCount++
   } else {
     console.log(`  generar: ERROR: ${genRes.error}`)
+    errCount++
+  }
+
+  const armStr = await armar_paquete.execute({ caso }, ctx)
+  const armRes = JSON.parse(armStr) as ArmarOk | ArmarErr
+  if (armRes.ok) {
+    const s = armRes.data.checklist.soportes
+    console.log(
+      `  paquete: ruta=${armRes.data.ruta} (listo=${armRes.data.listo_para_firma}; P/A/V=${s.presentes.length}/${s.ausentes.length}/${s.vencidos.length})`
+    )
+  } else {
+    console.log(`  paquete: ERROR: ${armRes.error}`)
     errCount++
   }
 }

@@ -10,8 +10,9 @@
     "verify:h2": "bun run src/scripts/verify-h2-regression.ts",
     "verify:xlsx": "bun run src/scripts/verify-xlsx.ts",
     "verify:pdf": "bun run src/scripts/verify-pdf.ts",
+    "verify:paquete": "bun run src/scripts/verify-paquete.ts",
     "typecheck": "bun x tsc --noEmit",
-    "check": "bun run typecheck && bun run demo:clean && bun run verify:ambiguous && bun run verify:mapeo && bun run verify:h2 && bun run verify:xlsx && bun run verify:pdf",
+    "check": "bun run typecheck && bun run demo:clean && bun run verify:ambiguous && bun run verify:mapeo && bun run verify:h2 && bun run verify:xlsx && bun run verify:pdf && bun run verify:paquete",
     "dev": "echo 'TODO: slice servidor'"
   },
   "dependencies": {

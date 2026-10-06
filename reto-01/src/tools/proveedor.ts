@@ -17,11 +17,14 @@ import {
   type PlantillaCampo as PdfPlantillaCampo,
   type ContextoPdf,
 } from "../lib/pdf"
+import { cargarSoportes, clasificarSoportes } from "../lib/soportes"
+import { armarPaqueteFS, type ArmarPaqueteConfig, type MapeoRef } from "../lib/paquete"
 
 // Export names:
 //   leer_solicitud      → modelo lo ve como proveedor_leer_solicitud
 //   mapear_campos       → modelo lo ve como proveedor_mapear_campos
 //   generar_formulario  → modelo lo ve como proveedor_generar_formulario
+//   armar_paquete       → modelo lo ve como proveedor_armar_paquete
 // (convención PRD §6.2: <archivo>_<export>)
 
 const FORMATOS = ["xlsx", "pdf", "portal"] as const
@@ -838,6 +841,179 @@ export const generar_formulario: Tool<typeof generarArgs, GenerarData> = {
       await appendLog(ctx, input.caso, {
         ts,
         herramienta: "proveedor_generar_formulario",
+        ok: false,
+        resumen: { caso: input.caso, error },
+      })
+      return JSON.stringify({ ok: false, error })
+    }
+  },
+}
+
+// ============================================================================
+// armar_paquete
+// ============================================================================
+
+const armarArgs = {
+  caso: z.string().min(1).describe(
+    "Nombre de la carpeta del caso en reto-01/fixtures/casos/ (p.ej. 'co-industrias-delta')."
+  ),
+}
+
+type ChecklistResumen = {
+  soportes: {
+    presentes: string[]
+    vencidos: string[]
+    ausentes: string[]
+  }
+  bloqueos: string[]
+}
+
+type ArmarPaqueteData = {
+  ruta: string
+  listo_para_firma: boolean
+  checklist: ChecklistResumen
+}
+
+type ArmarRunResult =
+  | {
+      ok: true
+      data: ArmarPaqueteData
+      resumenLog: { n_presentes: number; n_vencidos: number; n_ausentes: number }
+    }
+  | { ok: false; error: string }
+
+const runArmar = async (input: { caso: string }, ctx: Ctx): Promise<ArmarRunResult> => {
+  const nombre = input.caso
+  const dir = casoDir(ctx, nombre)
+  if (!(await existsDir(dir))) {
+    return { ok: false, error: `caso no encontrado: ${nombre}` }
+  }
+
+  // D2: usar runLeer/runMapear internos (no .execute), para que el log quede en 4 líneas por caso.
+  const leerRes = await runLeer({ caso: nombre }, ctx)
+  if (!leerRes.ok) return { ok: false, error: leerRes.error }
+
+  const mapearRes = await runMapear({ caso: nombre, campos: leerRes.data.campos }, ctx)
+  if (!mapearRes.ok) return { ok: false, error: mapearRes.error }
+
+  const soportesRes = await cargarSoportes(ctx)
+  if (!soportesRes.ok) return { ok: false, error: soportesRes.error }
+
+  const clasificacion = clasificarSoportes(leerRes.data.soportes, soportesRes.data, new Date())
+
+  // Resolver formulario (si existe según formato).
+  const outCasoDir = outDir(ctx, nombre)
+  let formulario: ArmarPaqueteConfig["formulario"] = undefined
+  if (leerRes.data.formato === "xlsx") {
+    const ruta = path.join(outCasoDir, "formulario.xlsx")
+    if (await existsFile(ruta)) {
+      formulario = { rutaOrigen: ruta, nombreDestino: "formulario.xlsx" }
+    }
+  } else if (leerRes.data.formato === "pdf") {
+    const ruta = path.join(outCasoDir, "formulario.pdf")
+    if (await existsFile(ruta)) {
+      formulario = { rutaOrigen: ruta, nombreDestino: "formulario.pdf" }
+    }
+  }
+
+  const mapeoRef: MapeoRef = {
+    faltantes: mapearRes.data.faltantes.map((f) => ({ etiqueta: f.etiqueta, motivo: f.motivo })),
+    requiere_confirmacion: mapearRes.data.requiere_confirmacion.map((r) => ({
+      etiqueta: r.etiqueta,
+      motivo: r.motivo,
+    })),
+  }
+
+  const config: ArmarPaqueteConfig = {
+    caso: nombre,
+    cliente: leerRes.data.cliente,
+    pais: leerRes.data.pais,
+    formato: leerRes.data.formato,
+    correo: leerRes.data.correo,
+    clasificacion,
+    mapeo: mapeoRef,
+    formulario,
+    paqueteDir: path.join(outCasoDir, "paquete"),
+    soportesRepoDir: path.join(ctx.directory, "fixtures", "repositorio", "soportes"),
+    fecha: new Date().toISOString().slice(0, 10),
+  }
+
+  let resultadoFS
+  try {
+    resultadoFS = await armarPaqueteFS(config)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    // Preservar strings de error específicos ("fallo copiando soporte X: ..." / "fallo copiando formulario X: ...")
+    // que armarPaqueteFS re-lanza desde dentro.
+    if (msg.startsWith("fallo copiando soporte") || msg.startsWith("fallo copiando formulario")) {
+      return { ok: false, error: msg }
+    }
+    return { ok: false, error: `fallo armando paquete (caso ${nombre}): ${msg}` }
+  }
+
+  // D4: data.ruta con separador "/" explícito al final; path.join evita path.sep en Windows.
+  const rutaRelativa = path.join("out", nombre, "paquete") + "/"
+
+  const data: ArmarPaqueteData = {
+    ruta: rutaRelativa,
+    listo_para_firma: resultadoFS.listo_para_firma,
+    checklist: {
+      soportes: {
+        presentes: clasificacion.presentes.map((s) => s.tipo),
+        vencidos: clasificacion.vencidos.map((s) => s.tipo),
+        ausentes: [...clasificacion.ausentes],
+      },
+      bloqueos: resultadoFS.bloqueos,
+    },
+  }
+
+  return {
+    ok: true,
+    data,
+    resumenLog: {
+      n_presentes: resultadoFS.n_presentes,
+      n_vencidos: resultadoFS.n_vencidos,
+      n_ausentes: resultadoFS.n_ausentes,
+    },
+  }
+}
+
+export const armar_paquete: Tool<typeof armarArgs, ArmarPaqueteData> = {
+  description:
+    "Arma el paquete para firma: copia soportes exigidos presentes/vencidos, copia formulario si existe, escribe checklist.md y borrador-correo.md (sin datos bancarios, RN2). Devuelve ruta del paquete, listo_para_firma y resumen del checklist.",
+  args: armarArgs,
+  async execute(input, ctx) {
+    const ts = new Date().toISOString()
+    try {
+      const result = await runArmar(input, ctx)
+      if (result.ok) {
+        await appendLog(ctx, input.caso, {
+          ts,
+          herramienta: "proveedor_armar_paquete",
+          ok: true,
+          resumen: {
+            ruta: result.data.ruta,
+            listo_para_firma: result.data.listo_para_firma,
+            n_presentes: result.resumenLog.n_presentes,
+            n_vencidos: result.resumenLog.n_vencidos,
+            n_ausentes: result.resumenLog.n_ausentes,
+          },
+        })
+        return JSON.stringify({ ok: true, data: result.data })
+      }
+      await appendLog(ctx, input.caso, {
+        ts,
+        herramienta: "proveedor_armar_paquete",
+        ok: false,
+        resumen: { caso: input.caso, error: result.error },
+      })
+      return JSON.stringify({ ok: false, error: result.error })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const error = `fallo armando paquete (caso ${input.caso}): ${msg}`
+      await appendLog(ctx, input.caso, {
+        ts,
+        herramienta: "proveedor_armar_paquete",
         ok: false,
         resumen: { caso: input.caso, error },
       })
