@@ -108,20 +108,11 @@ Copiar `.env.example` → `.env` y completar:
 
 ## Link de prueba
 
-> **Estado del deploy:** pendiente (-10 pts según PRD §9.3). Levantar localmente para la demo:
+**https://reto-tecnico-01-perxia.onrender.com/**
 
-```bash
-cp .env.example .env
-# Completar LLM_API_KEY con clave de Anthropic
-bun run dev
-# Abrir http://localhost:3000
-```
+Deploy activo en Render (free tier). El front chat está en la raíz; los endpoints de API en `/api/chat`, `/api/health`, `/api/sessions/:id`.
 
-Para deploy en producción (Render, Fly.io, Railway):
-1. Crear servicio web apuntando a este repo.
-2. Configurar variables de entorno: `LLM_API_KEY`, `LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-sonnet-4-5`, `PORT=3000`.
-3. Comando de inicio: `bun run src/server.ts`.
-4. El front se sirve desde `GET /` — no se necesita configuración extra.
+> Nota: instancias free de Render se duermen tras inactividad. El primer request puede tardar ~30 s en "despertar" el servicio.
 
 ## Layout de fixtures
 
