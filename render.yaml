@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: reto-01-perxia
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: reto-01
+    buildCommand: curl -fsSL https://bun.sh/install | bash && export PATH="$HOME/.bun/bin:$PATH" && bun install
+    startCommand: export PATH="$HOME/.bun/bin:$PATH" && bun run src/server.ts
+    healthCheckPath: /api/health
+    envVars:
+      - key: LLM_PROVIDER
+        value: anthropic
+      - key: LLM_MODEL
+        value: claude-sonnet-4-5
+      - key: LLM_MAX_TOKENS
+        value: "2048"
+      - key: AGENT_MAX_ITERATIONS
+        value: "25"
+      - key: SESSION_TOKEN_LIMIT
+        value: "100000"
+      - key: PORT
+        value: "3000"
+      - key: LLM_API_KEY
+        sync: false
