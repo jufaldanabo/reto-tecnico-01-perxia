@@ -174,6 +174,26 @@ const verifyCaseNoPdf = async (caso: string, errorPrefix: string): Promise<void>
   }
 }
 
+const verifyPdfAbsent = async (caso: string): Promise<void> => {
+  const leerStr = await leer_solicitud.execute({ caso }, ctx)
+  const leerRes = JSON.parse(leerStr) as LeerOk | LeerErr
+  if (!leerRes.ok) fail(`leer_solicitud(${caso}): ${leerRes.error}`)
+
+  const mapStr = await mapear_campos.execute({ caso, campos: leerRes.data.campos }, ctx)
+  const mapRes = JSON.parse(mapStr) as MapOk | MapErr
+  if (!mapRes.ok) fail(`mapear_campos(${caso}): ${mapRes.error}`)
+
+  await generar_formulario.execute({ caso, mapeo: mapRes.data }, ctx)
+
+  const rutaAbs = path.join(projectRoot, "out", caso, "formulario.pdf")
+  try {
+    await fs.access(rutaAbs)
+    fail(`${caso}: formulario.pdf NO debería existir para este formato, pero existe en ${rutaAbs}`)
+  } catch {
+    // esperado: no existe.
+  }
+}
+
 const verifyDeterminismoPdf = async (): Promise<void> => {
   await fs.mkdir(determRoot, { recursive: true })
   const plantilla: PlantillaCampo[] = [
@@ -206,7 +226,7 @@ const main = async (): Promise<void> => {
   try {
     await fs.rm(testRoot, { recursive: true, force: true })
     await verifyCasePdf("ec-corp-andina")
-    await verifyCaseNoPdf("pa-logistica-istmo", "formato portal no implementado")
+    await verifyPdfAbsent("pa-logistica-istmo")
     await verifyDeterminismoPdf()
     console.log("ok: verify-pdf")
   } catch (err) {

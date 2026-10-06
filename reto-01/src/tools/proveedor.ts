@@ -655,7 +655,7 @@ const generarArgs = {
   ),
 }
 
-type GenerarData = { ruta: string; formato: "xlsx" | "pdf" }
+type GenerarData = { ruta: string; formato: "xlsx" | "pdf" | "portal" }
 
 type GenerarRunResult =
   | { ok: true; data: GenerarData; n_escritos: number; n_vacios: number }
@@ -741,10 +741,79 @@ const runGenerar = async (
     }
   }
   if (formato === "portal") {
+    const plantillaPortalRuta = path.join(dir, "plantilla-campos.json")
+    if (!(await existsFile(plantillaPortalRuta))) {
+      return { ok: false, error: `plantilla-campos.json ausente para caso ${nombre}`, formato }
+    }
+    const plantillaPortalRes = await leerJson(plantillaPortalRuta, PlantillaCamposSchema)
+    if (!plantillaPortalRes.ok) return { ok: false, error: plantillaPortalRes.error, formato }
+
+    const valoresPortal = new Map<string, unknown>()
+    for (const l of input.mapeo.llenos) {
+      valoresPortal.set(l.etiqueta, l.valor)
+    }
+
+    const esBancario = (etiqueta: string): boolean => {
+      const norm = normalizar(etiqueta)
+      return (
+        norm.includes("banco") ||
+        norm.includes("cuenta") ||
+        norm.includes("swift") ||
+        norm.includes("iban")
+      )
+    }
+
+    const fecha = new Date().toISOString().slice(0, 10)
+    const filas = plantillaPortalRes.data.map((campo) => {
+      const obligatorioStr = campo.obligatorio ? "Sí" : "No"
+      if (esBancario(campo.etiqueta)) {
+        return `| ${campo.etiqueta} | [enviar por canal seguro] | ${obligatorioStr} |`
+      }
+      const val = valoresPortal.get(campo.etiqueta)
+      const valStr = val !== undefined && val !== null ? String(val) : ""
+      return `| ${campo.etiqueta} | ${valStr} | ${obligatorioStr} |`
+    })
+
+    const contenido = [
+      `# Valores para portal — ${solicitudRes.data.cliente}`,
+      "",
+      `**Caso:** ${nombre} | **País:** ${solicitudRes.data.pais} | **Generado:** ${fecha}`,
+      "",
+      "| Campo | Valor | Obligatorio |",
+      "|---|---|---|",
+      ...filas,
+      "",
+      "**Nota: estos valores son para copiar manualmente en el portal del cliente. El agente no interactúa con portales web.**",
+    ].join("\n")
+
+    const dirSalidaPortal = outDir(ctx, nombre)
+    try {
+      await fs.mkdir(dirSalidaPortal, { recursive: true })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: `fallo escribiendo valores-portal.md para caso ${nombre}: ${msg}`, formato }
+    }
+
+    await fs.writeFile(path.join(dirSalidaPortal, "valores-portal.md"), contenido, "utf8")
+
+    let n_escritos_portal = 0
+    let n_vacios_portal = 0
+    for (const campo of plantillaPortalRes.data) {
+      if (esBancario(campo.etiqueta)) continue
+      const val = valoresPortal.get(campo.etiqueta)
+      if (val !== undefined && val !== null && String(val).length > 0) {
+        n_escritos_portal++
+      } else {
+        n_vacios_portal++
+      }
+    }
+
+    const rutaRelativaPortal = path.join("out", nombre, "valores-portal.md")
     return {
-      ok: false,
-      error: "formato portal no implementado en slice 03; disponible en slice posterior",
-      formato,
+      ok: true,
+      data: { ruta: rutaRelativaPortal, formato: "portal" as const },
+      n_escritos: n_escritos_portal,
+      n_vacios: n_vacios_portal,
     }
   }
 

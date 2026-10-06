@@ -181,6 +181,41 @@ const verifyXlsxAbsent = async (caso: string): Promise<void> => {
   }
 }
 
+const verifyCasePortal = async (caso: string): Promise<void> => {
+  const leerStr = await leer_solicitud.execute({ caso }, ctx)
+  const leerRes = JSON.parse(leerStr) as LeerOk | LeerErr
+  if (!leerRes.ok) fail(`leer_solicitud(${caso}): ${leerRes.error}`)
+
+  const mapStr = await mapear_campos.execute({ caso, campos: leerRes.data.campos }, ctx)
+  const mapRes = JSON.parse(mapStr) as MapOk | MapErr
+  if (!mapRes.ok) fail(`mapear_campos(${caso}): ${mapRes.error}`)
+
+  const genStr = await generar_formulario.execute({ caso, mapeo: mapRes.data }, ctx)
+  const genRes = JSON.parse(genStr) as GenOk | GenErr
+  if (!genRes.ok) fail(`${caso}: generar_formulario devolvió error: ${genRes.error}`)
+  if (genRes.data.formato !== "portal") fail(`${caso}: formato esperado 'portal', actual: '${genRes.data.formato}'`)
+  if (!genRes.data.ruta.endsWith("valores-portal.md")) {
+    fail(`${caso}: ruta esperada terminando en valores-portal.md, actual: ${genRes.data.ruta}`)
+  }
+
+  const rutaAbs = path.join(projectRoot, genRes.data.ruta)
+  const contenido = await fs.readFile(rutaAbs, "utf8")
+  if (!contenido.includes("# Valores para portal")) {
+    fail(`${caso}: valores-portal.md no contiene encabezado '# Valores para portal'`)
+  }
+  if (!contenido.includes("[enviar por canal seguro]")) {
+    fail(`${caso}: valores-portal.md no contiene '[enviar por canal seguro]' (RN2 bancarios)`)
+  }
+
+  const xlsxAbs = path.join(projectRoot, "out", caso, "formulario.xlsx")
+  try {
+    await fs.access(xlsxAbs)
+    fail(`${caso}: formulario.xlsx NO debería existir para formato portal, pero existe en ${xlsxAbs}`)
+  } catch {
+    // esperado: no existe.
+  }
+}
+
 const snapshotXlsx = async (ruta: string): Promise<CellSnapshot[]> => {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.readFile(ruta)
@@ -226,10 +261,10 @@ const main = async (): Promise<void> => {
     await verifyCaseXlsx("co-industrias-delta")
     await verifyCaseXlsx("hn-agroexport-sula")
     // Formatos distintos a xlsx: archivo xlsx no debe crearse.
-    // EC (pdf) ya produce ok:true tras slice 04 → solo chequeamos ausencia del xlsx.
-    // PA (portal) sigue devolviendo ok:false con error de portal.
+    // EC (pdf) produce ok:true → solo chequeamos ausencia del xlsx.
+    // PA (portal) produce ok:true + valores-portal.md.
     await verifyXlsxAbsent("ec-corp-andina")
-    await verifyCaseNoXlsx("pa-logistica-istmo", "formato portal no implementado")
+    await verifyCasePortal("pa-logistica-istmo")
     // Determinismo del escritor.
     await verifyDeterminismo()
     console.log("ok: verify-xlsx")

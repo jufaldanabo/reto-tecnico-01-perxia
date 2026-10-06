@@ -106,13 +106,6 @@ for (const caso of CASOS) {
     const nVac = genRes.n_vacios ?? 0
     console.log(`  generar: ruta=${genRes.data.ruta} (${nEsc} escritos, ${nVac} vacíos)`)
     okCount++
-  } else if (
-    genRes.error.startsWith("formato pdf no implementado") ||
-    genRes.error.startsWith("formato portal no implementado")
-  ) {
-    const fmt = res.data.formato
-    console.log(`  generar: skipped (formato ${fmt})`)
-    okCount++
   } else {
     console.log(`  generar: ERROR: ${genRes.error}`)
     errCount++

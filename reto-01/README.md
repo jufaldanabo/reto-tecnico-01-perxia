@@ -12,7 +12,7 @@ bun install
 bun run demo
 ```
 
-Desde el slice 06, `demo` ejecuta `leer_solicitud` + `mapear_campos` + `generar_formulario` + `armar_paquete` + `simular_envio` (dos ramas: `confirmado:false` y `confirmado:true`) sobre los 4 casos reales de `fixtures/casos/`. Escribe `out/<caso>/log.jsonl` con una línea por herramienta llamada (6 líneas por caso) y genera el formulario en el formato pedido (xlsx para CO/HN, pdf para EC; PA sigue skipped porque portal se implementa en slice posterior). `armar_paquete` deja `out/<caso>/paquete/` con formulario copiado, soportes exigidos presentes/vencidos, `checklist.md` y `borrador-correo.md`. `simular_envio` NO escribe `ENVIO-SIMULADO.md` para los casos reales porque los 4 bloquean por `camara_comercio` vencido (RN3). Salida esperada:
+Desde el slice 06, `demo` ejecuta `leer_solicitud` + `mapear_campos` + `generar_formulario` + `armar_paquete` + `simular_envio` (dos ramas: `confirmado:false` y `confirmado:true`) sobre los 4 casos reales de `fixtures/casos/`. Escribe `out/<caso>/log.jsonl` con una línea por herramienta llamada (6 líneas por caso) y genera el formulario en el formato pedido (xlsx para CO/HN, pdf para EC, `valores-portal.md` para PA). `armar_paquete` deja `out/<caso>/paquete/` con formulario copiado, soportes exigidos presentes/vencidos, `checklist.md` y `borrador-correo.md`. `simular_envio` NO escribe `ENVIO-SIMULADO.md` para los casos reales porque los 4 bloquean por `camara_comercio` vencido (RN3). Salida esperada:
 
 ```
 caso: co-industrias-delta | pais: CO | formato: xlsx | 17 campos (0 ambiguos, 17 obligatorios) | 4 soportes
@@ -35,7 +35,7 @@ caso: hn-agroexport-sula | pais: HN | formato: xlsx | 11 campos (0 ambiguos, 11 
   envio[2]: ERROR: no listo para firma: Soporte vencido: camara_comercio (vigen…
 caso: pa-logistica-istmo | pais: PA | formato: portal | 9 campos (0 ambiguos, 9 obligatorios) | 2 soportes
   mapeo: 8 llenos, 0 faltantes, 1 requiere_confirmacion
-  generar: skipped (formato portal)
+  generar: ruta=out/pa-logistica-istmo/valores-portal.md (5 escritos, 1 vacíos)
   paquete: ruta=out/pa-logistica-istmo/paquete/ (listo=false; P/A/V=1/0/1)
   envio[1]: ERROR: requiere confirmación explícita
   envio[2]: ERROR: no listo para firma: Soporte vencido: camara_comercio (vigen…
@@ -105,6 +105,23 @@ Copiar `.env.example` → `.env` y completar:
   - `exceljs` — escritura cell-level de `out/<caso>/formulario.xlsx` (HU-3 P0). Pure JS, API `ws.getCell("B3").value = ...`. Alternativa descartada: implementar OOXML a mano (fuera de alcance temporal del reto). Detalle completo irá a `SOLUCION.md` sección "Decisiones y trade-offs".
   - `pdfkit` — generación de `out/<caso>/formulario.pdf` desde cero (HU-3 P1). Pure JS, API `doc.text(...)` + streams. Alternativa descartada: `pdf-lib` (orientada a editar PDFs existentes), implementar PDF a mano.
 - **Build / dev**: `typescript` (type-check), `@types/bun` (tipos del runtime Bun), `@types/pdfkit` (tipos de pdfkit — evita `any` en `src/lib/pdf.ts`), `pdf-parse` (solo verificación: `verify:pdf` extrae texto del pdf generado para asertos de fidelidad y determinismo; nunca se usa en runtime).
+
+## Link de prueba
+
+> **Estado del deploy:** pendiente (-10 pts según PRD §9.3). Levantar localmente para la demo:
+
+```bash
+cp .env.example .env
+# Completar LLM_API_KEY con clave de Anthropic
+bun run dev
+# Abrir http://localhost:3000
+```
+
+Para deploy en producción (Render, Fly.io, Railway):
+1. Crear servicio web apuntando a este repo.
+2. Configurar variables de entorno: `LLM_API_KEY`, `LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-sonnet-4-5`, `PORT=3000`.
+3. Comando de inicio: `bun run src/server.ts`.
+4. El front se sirve desde `GET /` — no se necesita configuración extra.
 
 ## Layout de fixtures
 
