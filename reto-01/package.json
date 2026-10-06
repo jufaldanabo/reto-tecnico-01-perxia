@@ -9,16 +9,20 @@
     "verify:mapeo": "bun run src/scripts/verify-mapeo.ts",
     "verify:h2": "bun run src/scripts/verify-h2-regression.ts",
     "verify:xlsx": "bun run src/scripts/verify-xlsx.ts",
+    "verify:pdf": "bun run src/scripts/verify-pdf.ts",
     "typecheck": "bun x tsc --noEmit",
-    "check": "bun run typecheck && bun run demo:clean && bun run verify:ambiguous && bun run verify:mapeo && bun run verify:h2 && bun run verify:xlsx",
+    "check": "bun run typecheck && bun run demo:clean && bun run verify:ambiguous && bun run verify:mapeo && bun run verify:h2 && bun run verify:xlsx && bun run verify:pdf",
     "dev": "echo 'TODO: slice servidor'"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
+    "pdfkit": "^0.15.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/pdfkit": "^0.13.0",
+    "pdf-parse": "^1.1.1"
   }
 }

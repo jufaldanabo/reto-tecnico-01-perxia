@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs"
+import { serializarValor, type Serializable } from "./serialize"
 
 export type PlantillaCelda = {
   hoja: string
@@ -7,20 +8,9 @@ export type PlantillaCelda = {
   celda_valor: string
 }
 
-export type ValorCelda = string | number | boolean | null | undefined | object | unknown[]
+export type ValorCelda = Serializable
 
 export type EscribirResultado = { n_escritos: number; n_vacios: number }
-
-// Serializa un valor para una celda xlsx:
-//   string→string, number→number, boolean→"Sí"|"No" (D7),
-//   null/undefined→null (celda vacía), object/array→JSON.stringify (defensivo).
-export const serializarValor = (v: ValorCelda): string | number | null => {
-  if (v === null || v === undefined) return null
-  if (typeof v === "string") return v
-  if (typeof v === "number") return v
-  if (typeof v === "boolean") return v ? "Sí" : "No"
-  return JSON.stringify(v)
-}
 
 export const escribirFormulario = async (
   ruta: string,

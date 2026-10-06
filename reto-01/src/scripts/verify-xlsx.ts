@@ -159,6 +159,28 @@ const verifyCaseNoXlsx = async (caso: string, errorPrefix: string): Promise<void
   }
 }
 
+// Para casos cuyo formato ≠ xlsx y que ya producen otro formato (p. ej. pdf en slice 04),
+// solo verifica que formulario.xlsx NO se cree, sin importar el retorno de generar_formulario.
+const verifyXlsxAbsent = async (caso: string): Promise<void> => {
+  const leerStr = await leer_solicitud.execute({ caso }, ctx)
+  const leerRes = JSON.parse(leerStr) as LeerOk | LeerErr
+  if (!leerRes.ok) fail(`leer_solicitud(${caso}): ${leerRes.error}`)
+
+  const mapStr = await mapear_campos.execute({ caso, campos: leerRes.data.campos }, ctx)
+  const mapRes = JSON.parse(mapStr) as MapOk | MapErr
+  if (!mapRes.ok) fail(`mapear_campos(${caso}): ${mapRes.error}`)
+
+  await generar_formulario.execute({ caso, mapeo: mapRes.data }, ctx)
+
+  const rutaAbs = path.join(projectRoot, "out", caso, "formulario.xlsx")
+  try {
+    await fs.access(rutaAbs)
+    fail(`${caso}: formulario.xlsx NO debería existir, pero existe en ${rutaAbs}`)
+  } catch {
+    // esperado: no existe.
+  }
+}
+
 const snapshotXlsx = async (ruta: string): Promise<CellSnapshot[]> => {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.readFile(ruta)
@@ -203,8 +225,10 @@ const main = async (): Promise<void> => {
     // Fidelidad + multi-sheet para xlsx.
     await verifyCaseXlsx("co-industrias-delta")
     await verifyCaseXlsx("hn-agroexport-sula")
-    // Formato no soportado + archivo no creado.
-    await verifyCaseNoXlsx("ec-corp-andina", "formato pdf no implementado")
+    // Formatos distintos a xlsx: archivo xlsx no debe crearse.
+    // EC (pdf) ya produce ok:true tras slice 04 → solo chequeamos ausencia del xlsx.
+    // PA (portal) sigue devolviendo ok:false con error de portal.
+    await verifyXlsxAbsent("ec-corp-andina")
     await verifyCaseNoXlsx("pa-logistica-istmo", "formato portal no implementado")
     // Determinismo del escritor.
     await verifyDeterminismo()

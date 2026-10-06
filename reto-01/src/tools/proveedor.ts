@@ -12,6 +12,11 @@ import {
   escribirFormulario,
   type PlantillaCelda as XlsxPlantillaCelda,
 } from "../lib/xlsx"
+import {
+  escribirFormularioPdf,
+  type PlantillaCampo as PdfPlantillaCampo,
+  type ContextoPdf,
+} from "../lib/pdf"
 
 // Export names:
 //   leer_solicitud      → modelo lo ve como proveedor_leer_solicitud
@@ -617,7 +622,7 @@ export const mapear_campos: Tool<typeof mapearArgs, MapeoData> = {
 }
 
 // ============================================================================
-// generar_formulario (slice 03: rama xlsx; pdf/portal → error diferido)
+// generar_formulario (xlsx + pdf; portal → error diferido en slice posterior)
 // ============================================================================
 
 const LlenoInputSchema = z
@@ -645,7 +650,7 @@ const generarArgs = {
   ),
 }
 
-type GenerarData = { ruta: string; formato: "xlsx" }
+type GenerarData = { ruta: string; formato: "xlsx" | "pdf" }
 
 type GenerarRunResult =
   | { ok: true; data: GenerarData; n_escritos: number; n_vacios: number }
@@ -681,10 +686,53 @@ const runGenerar = async (
   const formato = solicitudRes.data.formato
 
   if (formato === "pdf") {
+    const plantillaPdfRuta = path.join(dir, "plantilla-campos.json")
+    if (!(await existsFile(plantillaPdfRuta))) {
+      return { ok: false, error: `plantilla ausente para formato pdf (caso ${nombre})`, formato }
+    }
+    const plantillaPdfRes = await leerJson(plantillaPdfRuta, PlantillaCamposSchema)
+    if (!plantillaPdfRes.ok) return { ok: false, error: plantillaPdfRes.error, formato }
+
+    const valoresPdf = new Map<string, unknown>()
+    for (const l of input.mapeo.llenos) {
+      valoresPdf.set(l.etiqueta, l.valor)
+    }
+
+    const plantillaPdf: PdfPlantillaCampo[] = plantillaPdfRes.data.map((p) => ({
+      etiqueta: p.etiqueta,
+      obligatorio: p.obligatorio,
+    }))
+
+    const dirSalidaPdf = outDir(ctx, nombre)
+    try {
+      await fs.mkdir(dirSalidaPdf, { recursive: true })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: `fallo escribiendo pdf para caso ${nombre}: ${msg}`, formato }
+    }
+
+    const rutaAbsPdf = path.join(dirSalidaPdf, "formulario.pdf")
+    const contextoPdf: ContextoPdf = {
+      titulo: `Registro como proveedor — ${solicitudRes.data.cliente}`,
+      fecha: new Date().toISOString().slice(0, 10),
+    }
+    let n_escritos_pdf = 0
+    let n_vacios_pdf = 0
+    try {
+      const r = await escribirFormularioPdf(rutaAbsPdf, plantillaPdf, valoresPdf, contextoPdf)
+      n_escritos_pdf = r.n_escritos
+      n_vacios_pdf = r.n_vacios
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: `fallo escribiendo pdf para caso ${nombre}: ${msg}`, formato }
+    }
+
+    const rutaRelativaPdf = path.join("out", nombre, "formulario.pdf")
     return {
-      ok: false,
-      error: "formato pdf no implementado en slice 03; disponible en slice 04",
-      formato,
+      ok: true,
+      data: { ruta: rutaRelativaPdf, formato: "pdf" },
+      n_escritos: n_escritos_pdf,
+      n_vacios: n_vacios_pdf,
     }
   }
   if (formato === "portal") {
@@ -747,7 +795,7 @@ const runGenerar = async (
 
 export const generar_formulario: Tool<typeof generarArgs, GenerarData> = {
   description:
-    "Genera el formulario del cliente a partir del mapeo. Soporta xlsx (escribe out/<caso>/formulario.xlsx siguiendo plantilla-celdas.json). pdf y portal devuelven error de 'no implementado' en este slice.",
+    "Genera el formulario del cliente a partir del mapeo. Soporta xlsx (escribe out/<caso>/formulario.xlsx siguiendo plantilla-celdas.json) y pdf (escribe out/<caso>/formulario.pdf a partir de plantilla-campos.json). portal devuelve error de 'no implementado'.",
   args: generarArgs,
   async execute(input, ctx) {
     const ts = new Date().toISOString()
