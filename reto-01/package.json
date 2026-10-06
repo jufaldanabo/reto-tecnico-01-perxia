@@ -4,7 +4,10 @@
   "type": "module",
   "scripts": {
     "demo": "bun run demo.ts",
+    "demo:clean": "bun run src/scripts/clean-out.ts && bun run demo.ts",
+    "verify:ambiguous": "bun run src/scripts/verify-ambiguous.ts",
     "typecheck": "bun x tsc --noEmit",
+    "check": "bun run typecheck && bun run demo:clean && bun run verify:ambiguous",
     "dev": "echo 'TODO: slice servidor'"
   },
   "dependencies": {

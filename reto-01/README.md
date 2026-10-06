@@ -12,14 +12,27 @@ bun install
 bun run demo
 ```
 
-En este punto del proyecto (slice 00), `demo` solo valida que el proyecto compila; aún no hay herramientas implementadas.
+Desde el slice 01, `demo` ejecuta la herramienta `leer_solicitud` sobre los 4 casos reales de `fixtures/casos/` y escribe `out/<caso>/log.jsonl` por cada llamada. Salida esperada:
+
+```
+caso: co-industrias-delta | pais: CO | formato: xlsx | 17 campos (0 ambiguos, 17 obligatorios) | 4 soportes
+caso: ec-corp-andina | pais: EC | formato: pdf | ...
+caso: hn-agroexport-sula | pais: HN | formato: xlsx | ...
+caso: pa-logistica-istmo | pais: PA | formato: portal | ...
+total: 4 casos | ok: 4 | error: 0
+```
+
+(Las cuentas exactas de campos pueden variar según el fixture; lo importante es `ok: 4 | error: 0`.)
 
 ## Scripts
 
 | Script | Descripción |
 |---|---|
-| `bun run demo` | Ejecuta `demo.ts` (herramientas sin LLM; ver PRD §6.6). |
+| `bun run demo` | Ejecuta `demo.ts` sobre los 4 casos (herramientas sin LLM; ver PRD §6.6). |
+| `bun run demo:clean` | Borra `out/` y re-corre `demo` (apoya determinismo). |
+| `bun run verify:ambiguous` | Verifica RN1 con un caso sintético que incluye etiqueta ambigua. |
 | `bun run typecheck` | `tsc --noEmit` en modo estricto. |
+| `bun run check` | Encadena `typecheck + demo:clean + verify:ambiguous`. |
 | `bun run dev` | Placeholder — se implementa en el slice del servidor. |
 
 ## Variables de entorno
