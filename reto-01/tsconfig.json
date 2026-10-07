@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["bun"]
   },
-  "include": ["demo.ts", "src/**/*"]
+  "include": ["demo.ts", "src/**/*", "modulo/**/*"]
 }
