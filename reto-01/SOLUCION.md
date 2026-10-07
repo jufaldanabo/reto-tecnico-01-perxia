@@ -106,8 +106,6 @@ modulo/
 
 ## 7. Decisiones y trade-offs
 
-
-
 | # | Decisión | Alternativa descartada | Por qué |
 |---|---|---|---|
 | 1 | **Bun como runtime** (en vez de Node 20+) | Node + tsx/ts-node | Bun ejecuta TypeScript nativo sin build step, tiene `Bun.serve()` nativo (sin Express/Fastify), y bundler/test runner integrados. Para el reto, reduce la superficie de configuración a cero. |
