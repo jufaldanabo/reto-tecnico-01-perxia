@@ -19,10 +19,17 @@ const json = (data: unknown, status = 200): Response =>
 
 const rootDir = path.resolve(import.meta.dir, "..")
 
+function stripFrontmatter(content: string): string {
+  if (!content.startsWith("---")) return content
+  const end = content.indexOf("\n---", 3)
+  if (end === -1) return content
+  return content.slice(end + 4).replace(/^\n/, "")
+}
+
 async function cargarPrompt(): Promise<string> {
-  const promptPath = path.join(rootDir, "agent", "prompt.md")
+  const promptPath = path.join(rootDir, "modulo", "agent.md")
   const content = await fs.readFile(promptPath, "utf8")
-  return content
+  return stripFrontmatter(content)
 }
 
 const adapter = crearAdapter()

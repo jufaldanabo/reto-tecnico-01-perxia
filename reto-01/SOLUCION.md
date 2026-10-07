@@ -20,9 +20,9 @@ El área administrativa de Periferia IT Group transcribe manualmente entre 8 y 1
                                                    out/ (formularios, paquetes, logs)
 ```
 
-- `agent/prompt.md` — comportamiento del agente (CA2, CA3, flujo).
-- `src/knowledge/registro-proveedor.md` — conocimiento del dominio (RN1–RN5).
-- `src/tools/proveedor.ts` — ejecución (5 herramientas tipadas con zod).
+- `modulo/agent.md` — fuente canónica del system prompt (frontmatter YAML + body); `server.ts` lo lee y hace strip del frontmatter antes de enviarlo al LLM.
+- `src/knowledge/registro-proveedor.md` — conocimiento del dominio (RN1–RN5); espejado en `modulo/skill/registro-proveedor/SKILL.md`.
+- `src/tools/proveedor.ts` — ejecución (5 herramientas tipadas con zod); re-exportado desde `modulo/tools/proveedor.ts`.
 
 Un cambio de reglas de negocio toca `src/knowledge/`, no el servidor.
 
@@ -81,7 +81,30 @@ Para automatizar el llenado de un portal en una fase futura se usaría **Playwri
 - **Humano**: ingresa credenciales, resuelve CAPTCHA/MFA, revisa el borrador, hace clic en "Enviar" final.
 - Este modelo asegura que ninguna acción externa irreversible ocurra sin intervención humana (RN4).
 
-## 6. Decisiones y trade-offs
+## 6. Módulo reutilizable (bonus §9.4)
+
+La carpeta `modulo/` empaqueta el agente para integrarse a otras plataformas sin depender del servidor HTTP:
+
+```
+modulo/
+├── agent.md                              ← frontmatter (description, mode: primary, permission: {edit: deny, bash: deny})
+│                                           + body = system prompt completo (fuente canónica; server.ts lo lee)
+├── tools/proveedor.ts                    ← re-export de src/tools/proveedor (export * from "../../src/tools/proveedor")
+└── skill/registro-proveedor/SKILL.md    ← frontmatter (name, description) + body = reglas RN1-RN5
+```
+
+**Diseño de no-divergencia:**
+- `modulo/agent.md` es la fuente canónica: `src/server.ts` lee este archivo, hace strip del bloque YAML frontmatter (`stripFrontmatter`) y usa el body como `systemPrompt`. No existen dos copias del system prompt.
+- `modulo/tools/proveedor.ts` es un barrel re-export de una línea: `export * from "../../src/tools/proveedor"`. Las herramientas viven en un solo lugar; `modulo/` solo expone el punto de entrada.
+- `modulo/skill/registro-proveedor/SKILL.md` replica el body de `src/knowledge/registro-proveedor.md` con frontmatter añadido. Es la única pieza que tiene riesgo de divergencia; se mitiga documentando en ambos archivos la relación de espejo.
+
+**Para usar en otra plataforma de agentes** (p.ej. Claude Code, Cursor, un orquestador propio):
+1. Copiar `modulo/` al repo de la plataforma destino.
+2. Apuntar el agente a `agent.md` (frontmatter lo configura como agente primario con permisos de solo-lectura).
+3. Importar `tools/proveedor.ts` y registrar las 5 herramientas en el catálogo del orquestador destino.
+4. Cargar `skill/registro-proveedor/SKILL.md` como skill de conocimiento del dominio.
+
+## 7. Decisiones y trade-offs
 
 | # | Decisión | Alternativa descartada | Por qué |
 |---|---|---|---|
@@ -91,7 +114,7 @@ Para automatizar el llenado de un portal en una fase futura se usaría **Playwri
 | 4 | **JSON schemas de herramientas escritos a mano** (sin `zod-to-json-schema`) | `zod-to-json-schema` automático | Evita una dependencia extra. Los 5 schemas son simples y estables; no hay riesgo de divergencia porque los schemas del ciclo y los args zod de la herramienta se revisan en el mismo archivo. |
 | 5 | **LlmAdapter como interfaz propia** (en vez de usar el SDK de Anthropic directamente en el ciclo) | Llamar `Anthropic.messages.create` desde `ciclo.ts` | Permite cambiar de proveedor editando solo `src/llm/<proveedor>.ts` + `factory.ts`. El ciclo no sabe qué modelo usa. Verificable: `ciclo.ts` no importa nada de `@anthropic-ai/sdk`. |
 
-## 7. Supuestos
+## 8. Supuestos
 
 1. Los fixtures representan fielmente la variabilidad de los clientes reales (diferentes países, formatos, soportes). En producción habrá plantillas con más campos y soportes más complejos.
 2. El repositorio maestro (`fixtures/repositorio/maestro.json`) está actualizado. En producción necesita un dueño del dato y un proceso de actualización.
@@ -100,7 +123,7 @@ Para automatizar el llenado de un portal en una fase futura se usaría **Playwri
 5. `vigencia_hasta: 2026-09-30` del soporte `camara_comercio` es intencional en los fixtures para demostrar RN3 (bloqueo por soporte vencido). En producción el repositorio tendría vigencias actualizadas.
 6. El PRD §6.2 dice "el agente responde con `formato no soportado`" para portal; interpretamos que el agente puede responder con `ok: true` + `valores-portal.md` (más útil) y mencionar en el reply que no interactúa con el portal.
 
-## 8. Cobertura
+## 9. Cobertura
 
 | Historia de usuario | Estado | Qué faltaría para producción |
 |---|---|---|
@@ -109,8 +132,9 @@ Para automatizar el llenado de un portal en una fase futura se usaría **Playwri
 | HU-3 · Generar formulario (`proveedor_generar_formulario`) | **Hecho** (xlsx P0, pdf P1, portal P2 → `valores-portal.md`) | AcroForms rellenables para PDF. Integración real con portales (Playwright). |
 | HU-4 · Armar paquete + simular envío (`proveedor_armar_paquete` + `proveedor_simular_envio`) | **Hecho** | Integración con correo real (SMTP/SendGrid). Firma electrónica. Verificación de integridad de archivos antes del envío. |
 | HU-5 · Manejo de errores y sesión | **Hecho** (CA1–CA5 en ciclo) | Rate limiting distribuido. Persistencia de sesiones (Redis). Alertas operacionales (timeout, errores LLM reiterados). |
+| **Bonus §9.4** · Módulo reutilizable (`modulo/`) | **Hecho** | Publicar como paquete npm. Añadir tests de integración para el re-export. Mantener `SKILL.md` en sync con `src/knowledge/` via CI. |
 
-## 9. Uso de IA
+## 10. Uso de IA
 
 **Asistente principal:** Claude Code (modelo `claude-sonnet-4-6` de Anthropic), usado como orquestador SDD (Spec-Driven Development) para todo el desarrollo.
 
@@ -120,7 +144,7 @@ Para automatizar el llenado de un portal en una fase futura se usaría **Playwri
 - **Implementer** (fork sonnet): ejecutó las tareas del plan, corrió typecheck y scripts de verificación.
 - **Reviewer** (fork sonnet): leyó código implementado de forma independiente y emitió `review.md` con veredicto.
 
-**Tareas asistidas por IA:** análisis del PRD, diseño de la arquitectura de slices, generación de specs/planes/código/tests para los 10 slices, revisión de criterios de aceptación, debugging de errores de TypeScript.
+**Tareas asistidas por IA:** análisis del PRD, diseño de la arquitectura de slices, generación de specs/planes/código/tests para los 11 slices (incluyendo bonus), revisión de criterios de aceptación, debugging de errores de TypeScript.
 
 **Lo descartado de las propuestas de IA:**
 - Uso de React/Vite para el front: descartado por complejidad de build (se optó por vanilla HTML).
@@ -129,7 +153,7 @@ Para automatizar el llenado de un portal en una fase futura se usaría **Playwri
 - Uso de un ORM o SQLite para sesiones: descartado (in-memory es suficiente para el reto).
 - Framework HTTP (Hono, Express): descartado (Bun.serve nativo es suficiente y evita dependencias).
 
-## 10. Riesgos de producción
+## 11. Riesgos de producción
 
 | Riesgo | Probabilidad | Impacto | Mitigación |
 |---|---|---|---|
